@@ -67,17 +67,16 @@ jobs:
 
       - name: Install NCBI datasets CLI
         run: |
-          NCBI_URL="https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/LATEST/linux-amd64.datasets.package.zip"
+          NCBI_URL="https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/LATEST/linux-amd64/datasets"
           echo "Downloading NCBI datasets CLI from: $NCBI_URL"
-          if ! wget --tries=3 --retry-connrefused --timeout=30 -q "$NCBI_URL" -O datasets.zip; then
+          if ! wget --tries=3 --retry-connrefused --timeout=30 -q "$NCBI_URL" -O datasets; then
             echo "wget failed, trying curl..."
-            curl -L --retry 3 --max-time 30 -o datasets.zip "$NCBI_URL"
+            curl -L --retry 3 --max-time 30 -o datasets "$NCBI_URL"
           fi
-          if [ ! -s datasets.zip ]; then
+          if [ ! -s datasets ]; then
             echo "ERROR: Failed to download NCBI datasets CLI"
             exit 1
           fi
-          unzip -q -o datasets.zip
           sudo mv datasets /usr/local/bin/
           sudo chmod +x /usr/local/bin/datasets
           datasets version
