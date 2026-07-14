@@ -101,20 +101,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.taxonkit
-          key: taxonkit-taxdump-v2-${{ runner.os }}-${{ hashFiles('**/run_pipeline_final.sh') }}
+          key: taxonkit-taxdump-v3-${{ runner.os }}-${{ hashFiles('**/run_pipeline_final.sh') }}
           restore-keys: |
-            taxonkit-taxdump-v2-${{ runner.os }}-
+            taxonkit-taxdump-v3-${{ runner.os }}-
 
       - name: Prepare taxonkit taxonomy data
         run: |
           set -euo pipefail
           TAXDUMP_URL="https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
           mkdir -p "$HOME/.taxonkit"
+          cd "$HOME/.taxonkit"
           
           # 验证四个必需文件是否都存在
           dmp_ok=true
           for f in names.dmp nodes.dmp delnodes.dmp merged.dmp; do
-            if [ ! -f "$HOME/.taxonkit/$f" ]; then
+            if [ ! -f "$f" ]; then
               echo "  缺少: $f"
               dmp_ok=false
             fi
@@ -145,13 +146,13 @@ jobs:
             fi
             echo "✅ 下载成功 (大小: $(du -h taxdump.tar.gz | cut -f1))"
             
-            # 解压需要的四个 .dmp 文件到 ~/.taxonkit
+            # 先查看压缩包内容
+            echo "=== 压缩包内容 ==="
+            tar -tzf taxdump.tar.gz | head -n 20
+            
+            # 解压所有文件到 ~/.taxonkit
             echo "开始解压..."
-            tar -xzf taxdump.tar.gz --wildcards 'names.dmp' 'nodes.dmp' 'delnodes.dmp' 'merged.dmp' || {
-              echo "Extraction failed. Listing archive contents:"
-              tar -tzf taxdump.tar.gz | head -n 20 || true
-              exit 1
-            }
+            tar -xzf taxdump.tar.gz
             
             # 再次验证所有必需文件
             echo "=== 验证解压后的文件 ==="
