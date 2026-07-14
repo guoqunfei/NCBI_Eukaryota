@@ -19,7 +19,7 @@ on:
           - 'false'
 
 env:
-  TAXONKIT_VERSION: "0.15.1"
+  TAXONKIT_VERSION: "0.20.0"
   DATASETS_VERSION: "16.38.1"
   RESULTS_DIR: "results"
 
@@ -48,7 +48,7 @@ jobs:
 
       - name: Install taxonkit
         run: |
-          TAXONKIT_URL="https://github.com/shenwei356/taxonkit/releases/download/v${TAXONKIT_VERSION}/taxonkit_${TAXONKIT_VERSION}_linux_amd64.tar.gz"
+          TAXONKIT_URL="https://github.com/shenwei356/taxonkit/releases/download/v${TAXONKIT_VERSION}/taxonkit_linux_amd64.tar.gz"
           echo "Downloading taxonkit from: $TAXONKIT_URL"
           # 尝试 wget（带重试），失败则用 curl 备用
           if ! wget --tries=3 --retry-connrefused --timeout=30 -q "$TAXONKIT_URL" -O taxonkit.tar.gz; then
