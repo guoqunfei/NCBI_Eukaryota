@@ -290,74 +290,244 @@ jobs:
         continue-on-error: true
 
       # ------------------------------------------------------------------
-      # 9. 邮件成功通知（自动兼容 465 SSL 和 587 STARTTLS）
+      # 9. 邮件成功通知（丰富统计 + 自动兼容 SSL/STARTTLS）
       # ------------------------------------------------------------------
       - name: Send success email via Python
         if: steps.pipeline.outcome == 'success' && env.SMTP_SERVER != ''
         run: |
           python3 << 'PYEOF'
-          import smtplib, os, ssl
+          import smtplib, os, ssl, glob
+          from datetime import datetime, timedelta
+          from collections import defaultdict, Counter
           from email.mime.multipart import MIMEMultipart
           from email.mime.text import MIMEText
           from email.mime.application import MIMEApplication
+          import pandas as pd
           
+          # ------------------------------------------------------------------
+          # 配置读取
+          # ------------------------------------------------------------------
           server   = os.environ['SMTP_SERVER']
           port     = int(os.environ['SMTP_PORT'])
           user     = os.environ['SMTP_USER']
           password = os.environ['SMTP_PASSWORD']
           to       = os.environ['EMAIL_TO']
           from_addr= os.environ['EMAIL_FROM']
-          today    = os.environ['TODAY']
+          today_str= os.environ['TODAY']
           repo     = os.environ['GITHUB_REPO']
           run_id   = os.environ['GITHUB_RUN_ID']
           
+          today = datetime.strptime(today_str, '%Y-%m-%d').date()
+          
+          # ------------------------------------------------------------------
+          # 读取当天数据
+          # ------------------------------------------------------------------
+          raw_file = f"results/{today_str}/Eukaryota_assemblies_summary.xlsx"
+          if not os.path.exists(raw_file):
+              raw_file = "Eukaryota_assemblies_summary.xlsx"
+          
+          df_raw = pd.read_excel(raw_file, sheet_name='All_Raw', dtype=str)
+          df_unique = pd.read_excel(raw_file, sheet_name='Species_Unique', dtype=str)
+          
+          # 解析日期
+          df_raw['ReleaseDate'] = pd.to_datetime(df_raw['Assembly Release Date'], errors='coerce').dt.date
+          df_raw['TaxID'] = df_raw['Taxonomic ID'].astype(str)
+          
+          total_raw = len(df_raw)
+          total_unique = len(df_unique)
+          
+          # ------------------------------------------------------------------
+          # 读取历史数据（构建历史物种集合）
+          # ------------------------------------------------------------------
+          historical_taxids = set()
+          history_files = glob.glob("results/*/Eukaryota_assemblies_summary.xlsx")
+          for hfile in history_files:
+              if today_str in hfile:
+                  continue
+              try:
+                  hdf = pd.read_excel(hfile, sheet_name='Species_Unique', dtype=str, usecols=['Taxonomic ID'])
+                  historical_taxids.update(hdf['Taxonomic ID'].dropna().astype(str).tolist())
+              except Exception:
+                  pass
+          
+          # ------------------------------------------------------------------
+          # 按时间窗口统计
+          # ------------------------------------------------------------------
+          windows = [
+              ('今日', today, '#e8f5e9'),
+              ('本周', today - timedelta(days=7), '#f5f5f5'),
+              ('本月', today - timedelta(days=30), '#f5f5f5'),
+              ('本年', today - timedelta(days=365), '#f5f5f5'),
+          ]
+          
+          stats_rows = []
+          for name, start_date, color in windows:
+              mask = df_raw['ReleaseDate'] >= start_date
+              subset = df_raw[mask]
+              
+              new_assemblies = len(subset)
+              species_set = set(subset['TaxID'].dropna())
+              num_species = len(species_set)
+              first_time = len(species_set - historical_taxids)
+              
+              stats_rows.append((name, new_assemblies, num_species, first_time, color))
+          
+          # ------------------------------------------------------------------
+          # 按 Kingdom 分布
+          # ------------------------------------------------------------------
+          kingdom_counts = Counter(df_raw['Subkingdom'].fillna('Unknown'))
+          kingdom_html = ""
+          for kingdom, count in kingdom_counts.most_common():
+              pct = count / total_raw * 100
+              kingdom_html += f'<tr><td>{kingdom}</td><td>{count}</td><td>{pct:.1f}%</td></tr>'
+          
+          # ------------------------------------------------------------------
+          # 按 Assembly Level 分布
+          # ------------------------------------------------------------------
+          level_counts = Counter(df_raw['Assembly Level'].fillna('Unknown'))
+          level_html = ""
+          for level, count in level_counts.most_common():
+              pct = count / total_raw * 100
+              level_html += f'<tr><td>{level}</td><td>{count}</td><td>{pct:.1f}%</td></tr>'
+          
+          # ------------------------------------------------------------------
+          # 参考基因组统计
+          # ------------------------------------------------------------------
+          ref_genomes = df_raw[df_raw['RefSeq Category'].str.strip().str.lower() == 'reference genome']
+          ref_count = len(ref_genomes)
+          
+          # ------------------------------------------------------------------
+          # 生成 HTML 邮件
+          # ------------------------------------------------------------------
+          html = f"""<!DOCTYPE html>
+          <html>
+          <head>
+          <meta charset="UTF-8">
+          <style>
+            body {{ font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }}
+            h2 {{ color: #2c5282; border-bottom: 3px solid #4299e1; padding-bottom: 10px; margin-top: 30px; }}
+            h3 {{ color: #2d3748; margin-top: 25px; font-size: 16px; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px; }}
+            th {{ background: #2c5282; color: white; padding: 12px 8px; text-align: left; font-weight: 600; }}
+            td {{ padding: 10px 8px; border-bottom: 1px solid #e2e8f0; }}
+            tr:hover {{ background: #f7fafc; }}
+            .highlight {{ background: #c6f6d5; font-weight: 600; }}
+            .metric-card {{ background: #edf2f7; border-left: 4px solid #4299e1; padding: 15px; margin: 10px 0; border-radius: 4px; }}
+            .metric-value {{ font-size: 24px; font-weight: bold; color: #2c5282; }}
+            .metric-label {{ font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; }}
+            .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #718096; }}
+            a {{ color: #3182ce; text-decoration: none; }}
+            a:hover {{ text-decoration: underline; }}
+            .badge {{ display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }}
+            .badge-green {{ background: #c6f6d5; color: #22543d; }}
+            .badge-blue {{ background: #bee3f8; color: #2a4365; }}
+            .badge-purple {{ background: #e9d8fd; color: #553c9a; }}
+          </style>
+          </head>
+          <body>
+          
+          <h2>📊 NCBI 已发表真核生物基因组信息统计</h2>
+          <p style="color:#718096; font-size:14px;">统计日期：<strong>{today_str}</strong> | 数据来源：NCBI Datasets & Taxonomy</p>
+          
+          <div style="display:flex; gap:15px; flex-wrap:wrap; margin:20px 0;">
+            <div class="metric-card" style="flex:1; min-width:150px;">
+              <div class="metric-label">累计发表基因组</div>
+              <div class="metric-value">{total_raw:,}</div>
+            </div>
+            <div class="metric-card" style="flex:1; min-width:150px; border-left-color:#48bb78;">
+              <div class="metric-label">去重后物种数</div>
+              <div class="metric-value">{total_unique:,}</div>
+            </div>
+            <div class="metric-card" style="flex:1; min-width:150px; border-left-color:#9f7aea;">
+              <div class="metric-label">参考基因组</div>
+              <div class="metric-value">{ref_count:,}</div>
+              <span class="badge badge-purple">RefSeq</span>
+            </div>
+          </div>
+          
+          <h3>🆕 新增基因组统计</h3>
+          <table>
+            <tr>
+              <th style="width:15%">时间窗口</th>
+              <th style="width:25%">新增基因组数</th>
+              <th style="width:30%">覆盖物种数</th>
+              <th style="width:30%">首次发表物种数</th>
+            </tr>
+          """
+          
+          for name, assemblies, species, first_time, color in stats_rows:
+              html += f"""
+            <tr style="background:{color};">
+              <td><strong>{name}</strong></td>
+              <td>{assemblies:,} <span class="badge badge-green">+{assemblies}</span></td>
+              <td>{species:,}</td>
+              <td>{first_time:,} <span class="badge badge-blue">首报</span></td>
+            </tr>
+          """
+          
+          html += f"""
+          </table>
+          <p style="font-size:12px; color:#718096;">💡 <em>"首次发表物种"指该物种在 NCBI 历史上首次出现基因组组装记录。</em></p>
+          
+          <h3>🧬 分类群分布（Kingdom）</h3>
+          <table>
+            <tr><th>分类群</th><th>基因组数</th><th>占比</th></tr>
+            {kingdom_html}
+          </table>
+          
+          <h3>🔬 组装水平分布（Assembly Level）</h3>
+          <table>
+            <tr><th>组装水平</th><th>基因组数</th><th>占比</th></tr>
+            {level_html}
+          </table>
+          
+          <h3>📁 结果文件</h3>
+          <ul>
+            <li><a href="https://github.com/{repo}/blob/main/results/{today_str}/Eukaryota_assemblies_summary.xlsx">Eukaryota_assemblies_summary.xlsx</a> — 全部基因组记录（All_Raw + Species_Unique 双 Sheet）</li>
+            <li><a href="https://github.com/{repo}/blob/main/results/{today_str}/NCBI_Eukaryota_Taxonomy_Summary.xlsx">NCBI_Eukaryota_Taxonomy_Summary.xlsx</a> — 门/纲宏观统计</li>
+          </ul>
+          
+          <h3>🔗 快速链接</h3>
+          <p>
+            <a href="https://github.com/{repo}/actions/runs/{run_id}">📋 查看 Actions 运行详情</a> &nbsp;|&nbsp;
+            <a href="https://github.com/{repo}/actions/runs/{run_id}/artifacts">📦 下载 Artifact</a> &nbsp;|&nbsp;
+            <a href="https://github.com/{repo}/tree/main/results/{today_str}">📂 浏览结果目录</a>
+          </p>
+          
+          <div class="footer">
+            <p>此邮件由 GitHub Actions 自动发送 | 仓库：{repo} | Run ID：{run_id}</p>
+            <p>如有问题，请在仓库中提交 Issue 或联系管理员。</p>
+          </div>
+          
+          </body>
+          </html>
+          """
+          
+          # ------------------------------------------------------------------
+          # 构造邮件并发送
+          # ------------------------------------------------------------------
           msg = MIMEMultipart()
           msg['From'] = from_addr
           msg['To'] = to
-          msg['Subject'] = f'[NCBI Daily] {today} 基因组摘要统计完成'
+          msg['Subject'] = f'{today_str} | NCBI已发表真核生物基因组信息统计'
+          msg.attach(MIMEText(html, 'html', 'utf-8'))
           
-          body = f"""<h2>✅ NCBI Eukaryota 每日统计完成</h2>
-          <p><strong>日期：</strong>{today}</p>
-          <p><strong>状态：</strong>成功</p>
-          <hr>
-          <h3>运行信息</h3>
-          <ul>
-            <li>GitHub Actions Run ID: <a href="https://github.com/{repo}/actions/runs/{run_id}">{run_id}</a></li>
-            <li>Repository: {repo}</li>
-          </ul>
-          <hr>
-          <h3>结果文件</h3>
-          <ul>
-            <li><a href="https://github.com/{repo}/blob/main/results/{today}/Eukaryota_assemblies_summary.xlsx">Eukaryota_assemblies_summary.xlsx</a></li>
-            <li><a href="https://github.com/{repo}/blob/main/results/{today}/NCBI_Eukaryota_Taxonomy_Summary.xlsx">NCBI_Eukaryota_Taxonomy_Summary.xlsx</a></li>
-            <li><a href="https://github.com/{repo}/blob/main/results/{today}/NCBI_Eukaryota_Taxonomy_Summary.txt">NCBI_Eukaryota_Taxonomy_Summary.txt</a></li>
-          </ul>
-          <hr>
-          <h3>Artifact 下载</h3>
-          <p><a href="https://github.com/{repo}/actions/runs/{run_id}">点击查看运行详情和下载 Artifact</a></p>
-          """
-          msg.attach(MIMEText(body, 'html', 'utf-8'))
-          
-          # 添加附件
-          for fname in [f"results/{today}/Eukaryota_assemblies_summary.xlsx",
-                        f"results/{today}/NCBI_Eukaryota_Taxonomy_Summary.xlsx"]:
+          # 附件
+          for fname in [f"results/{today_str}/Eukaryota_assemblies_summary.xlsx",
+                        f"results/{today_str}/NCBI_Eukaryota_Taxonomy_Summary.xlsx"]:
               if os.path.exists(fname):
                   with open(fname, 'rb') as f:
                       att = MIMEApplication(f.read(), Name=os.path.basename(fname))
                       att['Content-Disposition'] = f'attachment; filename="{os.path.basename(fname)}"'
                       msg.attach(att)
           
-          # 自动适配：先尝试 SSL 直连(465)，失败则 fallback 到 STARTTLS(587)
+          # 自动适配 SSL/STARTTLS
           s = None
           try:
-              print(f"尝试 SMTP_SSL 连接 {server}:{port} ...")
               s = smtplib.SMTP_SSL(server, port, timeout=30)
-              print("✅ SMTP_SSL 连接成功")
-          except ssl.SSLError as e:
-              print(f"⚠️ SMTP_SSL 失败 ({e})，尝试 STARTTLS ...")
+          except ssl.SSLError:
               s = smtplib.SMTP(server, port, timeout=30)
               s.starttls()
-              print("✅ STARTTLS 连接成功")
           
           s.login(user, password)
           s.sendmail(from_addr, [to], msg.as_string())
@@ -399,37 +569,28 @@ jobs:
           msg = MIMEMultipart()
           msg['From'] = from_addr
           msg['To'] = to
-          msg['Subject'] = f'[NCBI Daily ERROR] {today} 运行失败'
+          msg['Subject'] = f'{today} | NCBI基因组统计 — 运行失败告警'
           
-          body = f"""<h2>❌ NCBI Eukaryota 每日统计失败</h2>
+          body = f"""<!DOCTYPE html>
+          <html><body style="font-family:Arial,sans-serif; max-width:600px; margin:0 auto;">
+          <h2 style="color:#c53030;">❌ NCBI Eukaryota 每日统计失败</h2>
           <p><strong>日期：</strong>{today}</p>
-          <p><strong>状态：</strong>失败</p>
+          <p><strong>状态：</strong>Pipeline 执行失败</p>
           <hr>
-          <p>Pipeline 步骤执行失败，请查看详细日志：</p>
-          <p><a href="https://github.com/{repo}/actions/runs/{run_id}">点击查看 Actions 日志</a></p>
+          <p>请尽快查看日志排查问题：</p>
+          <p><a href="https://github.com/{repo}/actions/runs/{run_id}" style="background:#c53030; color:white; padding:10px 20px; text-decoration:none; border-radius:4px; display:inline-block;">查看 Actions 错误日志</a></p>
           <hr>
-          <h3>调试建议</h3>
-          <ol>
-            <li>点击上方链接查看完整日志</li>
-            <li>检查 NCBI datasets API 是否可用</li>
-            <li>检查 taxonkit 数据库是否下载成功</li>
-            <li>尝试手动触发 workflow_dispatch 重试运行</li>
-          </ol>
-          <hr>
-          <p><small>此邮件由 GitHub Actions 自动发送</small></p>
+          <p style="font-size:12px; color:#718096;">此邮件由 GitHub Actions 自动发送</p>
+          </body></html>
           """
           msg.attach(MIMEText(body, 'html', 'utf-8'))
           
           s = None
           try:
-              print(f"尝试 SMTP_SSL 连接 {server}:{port} ...")
               s = smtplib.SMTP_SSL(server, port, timeout=30)
-              print("✅ SMTP_SSL 连接成功")
-          except ssl.SSLError as e:
-              print(f"⚠️ SMTP_SSL 失败 ({e})，尝试 STARTTLS ...")
+          except ssl.SSLError:
               s = smtplib.SMTP(server, port, timeout=30)
               s.starttls()
-              print("✅ STARTTLS 连接成功")
           
           s.login(user, password)
           s.sendmail(from_addr, [to], msg.as_string())
