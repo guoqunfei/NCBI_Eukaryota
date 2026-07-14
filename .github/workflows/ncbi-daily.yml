@@ -137,6 +137,18 @@ jobs:
             echo ""
             echo "--- Files in workspace ---"
             ls -la || true
+            echo ""
+            echo "--- Error files ---"
+            cat taxonkit_list.err 2>/dev/null || true
+            cat *.err 2>/dev/null || true
+            echo ""
+            echo "--- Checking key outputs ---"
+            wc -l Eukaryota_nodes.txt 2>/dev/null || echo "Eukaryota_nodes.txt: not found or empty"
+            wc -l Eukaryota_species_taxids.txt 2>/dev/null || echo "Eukaryota_species_taxids.txt: not found or empty"
+            wc -l Eukaryota_taxonomy.tsv 2>/dev/null || echo "Eukaryota_taxonomy.tsv: not found or empty"
+            echo ""
+            echo "--- Checking datasets availability ---"
+            which datasets 2>/dev/null && datasets --help 2>&1 | head -n 5 || echo "datasets not available"
             exit $EXIT_CODE
           }
         env:
