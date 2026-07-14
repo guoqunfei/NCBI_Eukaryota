@@ -447,6 +447,16 @@ if [[ "$needs_rebuild" == true ]]; then
     log "  诊断: names.dmp 前 200 字节..."
     head -c 200 "$TAXONKIT_DB/names.dmp" | xxd | head -n 5 || true
     
+    # 尝试用 taxid=1 测试
+    log "  测试: taxonkit list --ids 1 ..."
+    if taxonkit list --ids 1 --show-rank --indent "" > /tmp/test_nodes.txt 2>/tmp/test_err.txt; then
+        log "  测试成功: taxonkit list --ids 1 正常运行"
+        head -n 3 /tmp/test_nodes.txt | log
+    else
+        log "  测试失败: taxonkit list --ids 1 错误:"
+        cat /tmp/test_err.txt | log || true
+    fi
+    
     if ! taxonkit list --ids 2759 --show-rank --indent "" > Eukaryota_nodes.txt 2>taxonkit_list.err; then
         log "  taxonkit list 错误日志："
         cat taxonkit_list.err >&2 || true
