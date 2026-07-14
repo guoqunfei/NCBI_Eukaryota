@@ -5,8 +5,8 @@ on:
     branches:
       - main
   schedule:
-    # 每天北京时间 10:00 (UTC 02:00)
-    - cron: '0 2 * * *'
+    # 每天北京时间 06:00 (UTC 22:00)
+    - cron: '0 22 * * *'
   workflow_dispatch:
     inputs:
       force_rebuild:
@@ -290,13 +290,13 @@ jobs:
         continue-on-error: true
 
       # ------------------------------------------------------------------
-      # 9. 邮件成功通知（Python SMTP_SSL 直连，绕过 action 兼容性）
+      # 9. 邮件成功通知（自动兼容 465 SSL 和 587 STARTTLS）
       # ------------------------------------------------------------------
       - name: Send success email via Python
         if: steps.pipeline.outcome == 'success' && env.SMTP_SERVER != ''
         run: |
           python3 << 'PYEOF'
-          import smtplib, os
+          import smtplib, os, ssl
           from email.mime.multipart import MIMEMultipart
           from email.mime.text import MIMEText
           from email.mime.application import MIMEApplication
@@ -347,10 +347,21 @@ jobs:
                       att['Content-Disposition'] = f'attachment; filename="{os.path.basename(fname)}"'
                       msg.attach(att)
           
-          # QQ 邮箱用 SSL 直连（465 端口）
-          with smtplib.SMTP_SSL(server, port, timeout=30) as s:
-              s.login(user, password)
-              s.sendmail(from_addr, [to], msg.as_string())
+          # 自动适配：先尝试 SSL 直连(465)，失败则 fallback 到 STARTTLS(587)
+          s = None
+          try:
+              print(f"尝试 SMTP_SSL 连接 {server}:{port} ...")
+              s = smtplib.SMTP_SSL(server, port, timeout=30)
+              print("✅ SMTP_SSL 连接成功")
+          except ssl.SSLError as e:
+              print(f"⚠️ SMTP_SSL 失败 ({e})，尝试 STARTTLS ...")
+              s = smtplib.SMTP(server, port, timeout=30)
+              s.starttls()
+              print("✅ STARTTLS 连接成功")
+          
+          s.login(user, password)
+          s.sendmail(from_addr, [to], msg.as_string())
+          s.quit()
           print("✅ 邮件发送成功")
           PYEOF
         env:
@@ -371,7 +382,7 @@ jobs:
         if: steps.pipeline.outcome == 'failure' && env.SMTP_SERVER != ''
         run: |
           python3 << 'PYEOF'
-          import smtplib, os
+          import smtplib, os, ssl
           from email.mime.text import MIMEText
           from email.mime.multipart import MIMEMultipart
           
@@ -409,9 +420,20 @@ jobs:
           """
           msg.attach(MIMEText(body, 'html', 'utf-8'))
           
-          with smtplib.SMTP_SSL(server, port, timeout=30) as s:
-              s.login(user, password)
-              s.sendmail(from_addr, [to], msg.as_string())
+          s = None
+          try:
+              print(f"尝试 SMTP_SSL 连接 {server}:{port} ...")
+              s = smtplib.SMTP_SSL(server, port, timeout=30)
+              print("✅ SMTP_SSL 连接成功")
+          except ssl.SSLError as e:
+              print(f"⚠️ SMTP_SSL 失败 ({e})，尝试 STARTTLS ...")
+              s = smtplib.SMTP(server, port, timeout=30)
+              s.starttls()
+              print("✅ STARTTLS 连接成功")
+          
+          s.login(user, password)
+          s.sendmail(from_addr, [to], msg.as_string())
+          s.quit()
           print("✅ 告警邮件发送成功")
           PYEOF
         env:
