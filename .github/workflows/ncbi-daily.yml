@@ -120,7 +120,25 @@ jobs:
       - name: Run NCBI pipeline
         id: pipeline
         run: |
-          bash run_pipeline_final.sh
+          bash run_pipeline_final.sh || {
+            EXIT_CODE=$?
+            echo ""
+            echo "=========================================="
+            echo "Pipeline failed with exit code: $EXIT_CODE"
+            echo "=========================================="
+            echo ""
+            echo "--- Last 100 lines of pipeline log ---"
+            LOGFILE=$(ls -t pipeline_*.log 2>/dev/null | head -n 1)
+            if [ -n "$LOGFILE" ]; then
+              tail -n 100 "$LOGFILE" || true
+            else
+              echo "No log file found"
+            fi
+            echo ""
+            echo "--- Files in workspace ---"
+            ls -la || true
+            exit $EXIT_CODE
+          }
         env:
           TAXONKIT_DB: ~/.taxonkit
 
