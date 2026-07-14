@@ -176,6 +176,24 @@ fi
 log "=== 验证完成 ==="
 ls -lh "$TAXONKIT_HOME"
 
+# 尝试复制到 /tmp/.taxonkit 并测试
+log "=== 尝试复制到 /tmp/.taxonkit 并测试 ==="
+cp "$TAXONKIT_HOME"/*.dmp /tmp/.taxonkit/ 2>/dev/null || {
+    mkdir -p /tmp/.taxonkit
+    cp "$TAXONKIT_HOME"/*.dmp /tmp/.taxonkit/
+}
+log "  /tmp/.taxonkit 文件列表:"
+ls -lh /tmp/.taxonkit/
+
+log "  测试 /tmp/.taxonkit 目录..."
+if taxonkit list --ids 1 --show-rank --indent "" --data-dir /tmp/.taxonkit > /tmp/test_nodes.txt 2>/tmp/test_err.txt; then
+    log "  测试成功: /tmp/.taxonkit 工作正常"
+    export TAXONKIT_DB="/tmp/.taxonkit"
+    log "  切换到 /tmp/.taxonkit 作为数据库目录"
+else
+    log "  测试失败: /tmp/.taxonkit 也不行: $(cat /tmp/test_err.txt)"
+fi
+
 # =============================================================================
 # 1. 生成 Python 脚本
 # =============================================================================
