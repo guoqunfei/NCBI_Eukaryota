@@ -308,6 +308,7 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASSWORD }}
+          secure: false
           subject: '[NCBI Daily] ${{ steps.collect.outputs.today }} 基因组摘要统计完成'
           to: ${{ secrets.EMAIL_TO }}
           from: ${{ secrets.EMAIL_FROM }}
@@ -348,6 +349,7 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASSWORD }}
+          secure: false
           subject: '[NCBI Daily ERROR] ${{ steps.collect.outputs.today }} 运行失败'
           to: ${{ secrets.EMAIL_TO }}
           from: ${{ secrets.EMAIL_FROM }}
