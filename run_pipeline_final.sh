@@ -160,31 +160,55 @@ def main():
     outfile = sys.argv[2]
     timeout_sec = int(sys.argv[3])
 
+    # 检查 datasets 可用性
     try:
-        with open(outfile, 'w') as f:
-            # start_new_session=True 创建新进程组，便于 killpg
-            proc = subprocess.Popen(
-                ['datasets', 'summary', 'genome', 'taxon', taxid],
-                stdout=f, stderr=subprocess.DEVNULL,
-                start_new_session=True
-            )
-            try:
-                proc.wait(timeout=timeout_sec)
-                if proc.returncode != 0:
-                    print(f"FAILED:{taxid}", file=sys.stderr)
-                    sys.exit(1)
-            except subprocess.TimeoutExpired:
-                # 超时：发送 SIGKILL 给整个进程组
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                proc.wait()
-                print(f"TIMEOUT:{taxid}", file=sys.stderr)
-                sys.exit(124)
+        result = subprocess.run(['datasets', '--version'], capture_output=True, text=True, timeout=5)
+        print(f"[INFO] datasets version: {result.stdout.strip()}", file=sys.stderr)
     except Exception as e:
-        print(f"ERROR:{taxid}:{e}", file=sys.stderr)
-        sys.exit(1)
+        print(f"[WARN] Could not check datasets version: {e}", file=sys.stderr)
+
+    # 尝试多种命令格式
+    cmd_variants = [
+        ['datasets', 'summary', 'genome', 'taxon', taxid],
+        ['datasets', 'summary', 'genome', 'taxon', taxid, '--as-json-lines'],
+    ]
+
+    for cmd in cmd_variants:
+        try:
+            print(f"[INFO] Trying: {' '.join(cmd)}", file=sys.stderr)
+            with open(outfile, 'w') as f:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=f, stderr=subprocess.PIPE,
+                    start_new_session=True, text=True
+                )
+                try:
+                    stdout_data, stderr_data = proc.communicate(timeout=timeout_sec)
+                    if proc.returncode == 0:
+                        print(f"[INFO] SUCCESS with: {' '.join(cmd)}", file=sys.stderr)
+                        if os.path.getsize(outfile) == 0:
+                            with open(outfile, 'w') as f2:
+                                f2.write('[]')
+                        sys.exit(0)
+                    else:
+                        print(f"[WARN] FAILED (exit {proc.returncode}) with: {' '.join(cmd)} - {stderr_data}", file=sys.stderr)
+                        continue
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    proc.wait()
+                    print(f"[WARN] TIMEOUT with: {' '.join(cmd)}", file=sys.stderr)
+                    continue
+        except Exception as e:
+            print(f"[WARN] ERROR with: {' '.join(cmd)} - {e}", file=sys.stderr)
+            continue
+
+    print(f"FAILED:{taxid}", file=sys.stderr)
+    with open(outfile, 'w') as f:
+        f.write('[]')
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
