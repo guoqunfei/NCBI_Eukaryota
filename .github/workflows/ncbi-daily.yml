@@ -121,7 +121,6 @@ jobs:
         id: pipeline
         run: |
           bash run_pipeline_final.sh
-        continue-on-error: true
         env:
           TAXONKIT_DB: ~/.taxonkit
 
@@ -201,7 +200,7 @@ jobs:
       # 9. 发送成功邮件通知
       # ------------------------------------------------------------------
       - name: Send success email
-        if: steps.pipeline.outcome == 'success'
+        if: steps.pipeline.outcome == 'success' && env.SMTP_SERVER != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
@@ -241,7 +240,7 @@ jobs:
       # 10. 发送失败邮件通知
       # ------------------------------------------------------------------
       - name: Send failure email
-        if: steps.pipeline.outcome == 'failure'
+        if: steps.pipeline.outcome == 'failure' && env.SMTP_SERVER != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
@@ -271,10 +270,10 @@ jobs:
             <p><small>此邮件由 GitHub Actions 自动发送</small></p>
 
       # ------------------------------------------------------------------
-      # 11. 最终失败标记
+      # 11. 最终失败标记（仅当 pipeline 确实失败时）
       # ------------------------------------------------------------------
       - name: Mark as failed
-        if: steps.pipeline.outcome == 'failure'
+        if: failure() && steps.pipeline.outcome == 'failure'
         run: |
           echo "Pipeline failed. Check logs for details."
           exit 1
