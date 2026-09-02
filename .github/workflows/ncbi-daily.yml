@@ -5,8 +5,8 @@ on:
     branches:
       - main
   schedule:
-    # 每天北京时间 06:00 (UTC 22:00)
-    - cron: '0 22 * * *'
+    # 每月2日北京时间 06:00 (UTC 22:00)
+    - cron: '0 22 1 * *'
   workflow_dispatch:
     inputs:
       force_rebuild:
